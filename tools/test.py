@@ -11,8 +11,9 @@ import torch.distributed as dist
 from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
 from mmcv.runner import get_dist_info, init_dist, load_checkpoint
 
-from mmdet.core import coco_eval, results2json, wrap_fp16_model
-from mmdet.datasets import build_dataloader, build_dataset
+from mmdet import datasets
+from mmdet.core import coco_eval, lvis_eval, results2json, wrap_fp16_model
+from mmdet.datasets import DATASETS, build_dataloader, build_dataset
 from mmdet.models import build_detector
 
 
@@ -257,7 +258,20 @@ def main():
             else:
                 if not isinstance(outputs[0], dict):
                     result_files = results2json(dataset, outputs, args.out)
-                    coco_eval(result_files, eval_types, dataset.coco)
+                    dataset_type = DATASETS.get(cfg.data.test.type)
+                    if issubclass(dataset_type, datasets.CocoDataset):
+                        coco_eval(result_files, eval_types, dataset.coco)
+                    elif issubclass(dataset_type, datasets.LVISDataset):
+                        max_dets = cfg.test_cfg['rcnn']['max_per_img']
+                        lvis_eval(
+                            result_files,
+                            eval_types,
+                            dataset.lvis,
+                            max_dets=max_dets)
+                    else:
+                        raise ValueError(
+                            '{} is not supported type for evaluation'.format(
+                                dataset_type))
                 else:
                     for name in outputs[0]:
                         print('\nEvaluating {}'.format(name))

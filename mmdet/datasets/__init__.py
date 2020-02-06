@@ -4,6 +4,7 @@ from .coco import CocoDataset
 from .custom import CustomDataset
 from .dataset_wrappers import ConcatDataset, RepeatDataset
 from .loader import DistributedGroupSampler, GroupSampler, build_dataloader
+from .lvis import LVISDataset
 from .registry import DATASETS
 from .voc import VOCDataset
 from .wider_face import WIDERFaceDataset
@@ -13,5 +14,5 @@ __all__ = [
     'CustomDataset', 'XMLDataset', 'CocoDataset', 'VOCDataset',
     'CityscapesDataset', 'GroupSampler', 'DistributedGroupSampler',
     'build_dataloader', 'ConcatDataset', 'RepeatDataset', 'WIDERFaceDataset',
-    'DATASETS', 'build_dataset'
+    'DATASETS', 'build_dataset', 'LVISDataset'
 ]

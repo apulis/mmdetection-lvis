@@ -5,7 +5,9 @@ from mmcv.parallel import collate
 from mmcv.runner import get_dist_info
 from torch.utils.data import DataLoader
 
-from .sampler import DistributedGroupSampler, DistributedSampler, GroupSampler
+from .sampler import (DistributedGroupSampler,
+                      DistributedRepeatedRandomSampler, DistributedSampler,
+                      GroupSampler)
 
 if platform.system() != 'Windows':
     # https://github.com/pytorch/pytorch/issues/973
@@ -14,13 +16,14 @@ if platform.system() != 'Windows':
     resource.setrlimit(resource.RLIMIT_NOFILE, (4096, rlimit[1]))
 
 
-def build_dataloader(dataset,
-                     imgs_per_gpu,
-                     workers_per_gpu,
-                     num_gpus=1,
-                     dist=True,
-                     shuffle=True,
-                     **kwargs):
+def build_dataloader(
+        dataset,
+        imgs_per_gpu,
+        workers_per_gpu,
+        num_gpus=1,
+        dist=True,
+        # shuffle=True,
+        **kwargs):
     """Build PyTorch DataLoader.
 
     In distributed training, each GPU/process has a dataloader.
@@ -41,13 +44,25 @@ def build_dataloader(dataset,
     Returns:
         DataLoader: A PyTorch dataloader.
     """
+    shuffle = kwargs.get('shuffle', True)
+    sampling_cfg = kwargs.pop('sampling_cfg', None)
+    with_repeated_sampling = sampling_cfg is not None
     if dist:
         rank, world_size = get_dist_info()
+
         # DistributedGroupSampler will definitely shuffle the data to satisfy
         # that images on each GPU are in the same group
         if shuffle:
-            sampler = DistributedGroupSampler(dataset, imgs_per_gpu,
-                                              world_size, rank)
+            if with_repeated_sampling:
+                sampler = DistributedRepeatedRandomSampler(
+                    dataset,
+                    sampling_cfg,
+                    samples_per_gpu=imgs_per_gpu,
+                    num_replicas=world_size,
+                    rank=rank)
+            else:
+                sampler = DistributedGroupSampler(dataset, imgs_per_gpu,
+                                                  world_size, rank)
         else:
             sampler = DistributedSampler(
                 dataset, world_size, rank, shuffle=False)
@@ -65,6 +80,7 @@ def build_dataloader(dataset,
         num_workers=num_workers,
         collate_fn=partial(collate, samples_per_gpu=imgs_per_gpu),
         pin_memory=False,
-        **kwargs)
+        shuffle=False,
+        drop_last=False)
 
     return data_loader

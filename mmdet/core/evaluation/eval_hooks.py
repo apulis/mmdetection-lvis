@@ -11,13 +11,14 @@ from pycocotools.cocoeval import COCOeval
 from torch.utils.data import Dataset
 
 from mmdet import datasets
+from mmdet.lvis import LVISEval
 from .coco_utils import fast_eval_recall, results2json
 from .mean_ap import eval_map
 
 
 class DistEvalHook(Hook):
 
-    def __init__(self, dataset, interval=1):
+    def __init__(self, dataset, interval=1, iou_type='segm'):
         if isinstance(dataset, Dataset):
             self.dataset = dataset
         elif isinstance(dataset, dict):
@@ -27,6 +28,9 @@ class DistEvalHook(Hook):
                 'dataset must be a Dataset object or a dict, not {}'.format(
                     type(dataset)))
         self.interval = interval
+        if isinstance(iou_type, str):
+            iou_type = [iou_type]
+        self.iou_type = iou_type
 
     def after_train_epoch(self, runner):
         if not self.every_n_epochs(runner, self.interval):
@@ -149,4 +153,42 @@ class CocoDistEvalmAPHook(DistEvalHook):
                 '{ap[4]:.3f} {ap[5]:.3f}').format(ap=cocoEval.stats[:6])
         runner.log_buffer.ready = True
         for res_type in res_types:
+            os.remove(result_files[res_type])
+
+
+class LVISDistEvalmAPHook(DistEvalHook):
+
+    def evaluate(self, runner, results):
+        tmp_file = osp.join(runner.work_dir, 'temp_0')
+        result_files = results2json(self.dataset, results, tmp_file)
+        if result_files is None:
+            print('Nothing to evaluate.')
+            return
+
+        for res_type in self.iou_type:
+            if res_type not in ['bbox', 'segm']:
+                raise KeyError(
+                    'invalid iou_type: {} for evaluation'.format(res_type))
+            if res_type == 'segm':
+                assert runner.model.module.with_mask
+            try:
+                mmcv.check_file_exist(result_files[res_type])
+            except IndexError:
+                print('No prediction found.')
+                break
+            lvis_eval = LVISEval(
+                self.dataset.lvis, result_files[res_type], iou_type=res_type)
+            lvis_eval.run()
+            lvis_eval.print_results()
+
+            eval_results = lvis_eval.get_results()
+            metrics = eval_results.keys()
+            for i, metric in enumerate(metrics):
+                if metric.find('AP') == -1:
+                    continue
+                key = 'AP_{}/{}'.format(res_type, metric)
+                val = float('{:.3f}'.format(eval_results[metric]))
+                runner.log_buffer.output[key] = val
+        runner.log_buffer.ready = True
+        for res_type in self.iou_type:
             os.remove(result_files[res_type])

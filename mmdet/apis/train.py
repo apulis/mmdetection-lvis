@@ -10,7 +10,8 @@ from mmcv.runner import DistSamplerSeedHook, Runner, obj_from_dict
 
 from mmdet import datasets
 from mmdet.core import (CocoDistEvalmAPHook, CocoDistEvalRecallHook,
-                        DistEvalmAPHook, DistOptimizerHook, Fp16OptimizerHook)
+                        DistEvalmAPHook, DistOptimizerHook, Fp16OptimizerHook,
+                        LVISDistEvalmAPHook)
 from mmdet.datasets import DATASETS, build_dataloader
 from mmdet.models import RPN
 from mmdet.utils import get_root_logger
@@ -199,10 +200,14 @@ def _dist_train(model,
                 timestamp=None):
     # prepare data loaders
     dataset = dataset if isinstance(dataset, (list, tuple)) else [dataset]
+    sampling_cfg = cfg.get('sampling_cfg', None)
     data_loaders = [
         build_dataloader(
-            ds, cfg.data.imgs_per_gpu, cfg.data.workers_per_gpu, dist=True)
-        for ds in dataset
+            ds,
+            cfg.data.imgs_per_gpu,
+            cfg.data.workers_per_gpu,
+            dist=True,
+            sampling_cfg=sampling_cfg) for ds in dataset
     ]
     # put model on gpus
     model = MMDistributedDataParallel(model.cuda())
@@ -239,6 +244,9 @@ def _dist_train(model,
             if issubclass(dataset_type, datasets.CocoDataset):
                 runner.register_hook(
                     CocoDistEvalmAPHook(val_dataset_cfg, **eval_cfg))
+            elif issubclass(dataset_type, datasets.LVISDataset):
+                runner.register_hook(
+                    LVISDistEvalmAPHook(val_dataset_cfg, **eval_cfg))
             else:
                 runner.register_hook(
                     DistEvalmAPHook(val_dataset_cfg, **eval_cfg))
